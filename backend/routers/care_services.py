@@ -6,7 +6,7 @@ from config import settings
 import jwt
 import requests
 from auth.auth_utils import get_authenticated_user_id
-
+from fastapi import Query
 router = APIRouter()
 security = HTTPBearer()
 
@@ -107,8 +107,54 @@ def update_care_service(
 # ======= QUERY (All Services for Caregiver) =======
 
 @router.get("/care_services/query", tags=["Care Services"], response_model=List[CareService])
-def get_my_care_services(user_id: str = Depends(get_authenticated_user_id)):
-    url = f"{SUPABASE_URL}/rest/v1/care_services?caregiver_user_id=eq.{user_id}&select=*"
+def get_my_care_services(
+    caregiver_user_id: Optional[str] = Depends(get_authenticated_user_id),
+    id: Optional[str] = Query(None),
+    care_request_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    working_hours: Optional[str] = Query(None),
+    monthly_charges: Optional[float] = Query(None),
+    weekly_holiday: Optional[str] = Query(None),
+    food_provided: Optional[bool] = Query(None),
+    transport_provided: Optional[bool] = Query(None),
+    assignment_notes: Optional[str] = Query(None)
+):
+    """
+    Query care services with optional filters
+    """
+    base_url = f"{SUPABASE_URL}/rest/v1/care_services"
+    filters = []
+
+    if caregiver_user_id:
+        filters.append(f"caregiver_user_id=eq.{caregiver_user_id}")
+    if id:
+        filters.append(f"id=eq.{id}")
+    if care_request_id:
+        filters.append(f"care_request_id=eq.{care_request_id}")
+    if status:
+        filters.append(f"status=eq.{status}")
+    if start_date:
+        filters.append(f"start_date=eq.{start_date}")
+    if end_date:
+        filters.append(f"end_date=eq.{end_date}")
+    if working_hours:
+        filters.append(f"working_hours=eq.{working_hours}")
+    if monthly_charges is not None:
+        filters.append(f"monthly_charges=eq.{monthly_charges}")
+    if weekly_holiday:
+        filters.append(f"weekly_holiday=eq.{weekly_holiday}")
+    if food_provided is not None:
+        filters.append(f"food_provided=is.{str(food_provided).lower()}")
+    if transport_provided is not None:
+        filters.append(f"transport_provided=is.{str(transport_provided).lower()}")
+    if assignment_notes:
+        filters.append(f"assignment_notes=eq.{assignment_notes}")
+
+    query_string = "&".join(filters)
+    url = f"{base_url}?select=*" + (f"&{query_string}" if filters else "")
+
     headers = {
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"

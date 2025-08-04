@@ -1,0 +1,439 @@
+# routers/face_recognition.py
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi.responses import JSONResponse
+from supabase import create_client, Client
+import face_recognition
+import numpy as np
+import shutil
+import os
+import uuid
+from typing import Optional
+from PIL import Image
+import io
+import cv2
+# Import your auth middleware
+from auth.auth_utils import get_authenticated_user_id
+
+# Supabase config
+SUPABASE_URL = os.getenv("SUPABASE_DB_URL", "<your-supabase-url>")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "<your-service-role-key>")
+SUPABASE_BUCKET = "onboarding"  # Make sure this bucket exists in Supabase
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+router = APIRouter()
+
+@router.post("/upload-face/")
+async def upload_face(
+    user_id: str = Form(...),
+    angle: str = Form(...),
+    file: UploadFile = File(...),
+    current_user_id: str = Depends(get_authenticated_user_id)  # Add authentication
+):
+    try:
+        print(f"Processing upload: user_id={user_id}, angle={angle}, content_type={file.content_type}")
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+
+        # Validate angle
+        valid_angles = ["front", "left", "right"]
+        if angle not in valid_angles:
+            raise HTTPException(status_code=400, detail=f"Angle must be one of: {', '.join(valid_angles)}")
+
+        # Validate user_id
+        if not user_id or len(user_id.strip()) == 0:
+            raise HTTPException(status_code=400, detail="User ID is required")
+
+        # Create temp directory for processing
+        debug_dir = "debug_faces"
+        os.makedirs(debug_dir, exist_ok=True)
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        local_path = os.path.join(debug_dir, filename)
+
+        try:
+            # Read uploaded file
+            file_content = await file.read()
+
+ 
+            # Convert image to RGB format using PIL
+            try:
+                print(f"Converting image: size={len(file_content)} bytes")
+                pil_image = Image.open(io.BytesIO(file_content))
+                print(f"Original image mode: {pil_image.mode}, size: {pil_image.size}")
+                
+                # Convert to RGB if necessary (handles RGBA, grayscale, etc.)
+                if pil_image.mode != 'RGB':
+                    print(f"Converting from {pil_image.mode} to RGB")
+                    pil_image = pil_image.convert('RGB')
+                
+                # Save as JPEG to ensure compatibility
+                pil_image.save(local_path, 'JPEG', quality=95)
+                print(f"Image saved to {local_path}")
+                
+            except Exception as img_error:
+                print(f"Image conversion error: {str(img_error)}")
+                raise HTTPException(status_code=400, detail=f"Invalid image format: {str(img_error)}")
+
+            # Facial recognition processing
+            print("Starting face recognition processing...")
+            
+            try:
+                image = face_recognition.load_image_file(local_path)
+                print(f"Image loaded, shape: {image.shape}")
+                
+                face_locations = face_recognition.face_locations(image)
+                print(f"Face locations found: {len(face_locations)}")
+                
+                if not face_locations:
+                    raise HTTPException(status_code=400, detail="No face detected in the image. Please ensure a clear face is visible.")
+
+                face_encodings = face_recognition.face_encodings(image, face_locations)
+                print(f"Face encodings generated: {len(face_encodings)}")
+                
+                if not face_encodings:
+                    raise HTTPException(status_code=400, detail="No valid face encodings found. Please try again with a clearer image.")
+
+                # Get the first face encoding
+                encoding = face_encodings[0].tolist()
+                print(f"Encoding length: {len(encoding)}")
+                
+                # Create partial encoding for response (first 100 values)
+                partial_encoding = encoding[:100] if len(encoding) >= 100 else encoding
+                print(f"Partial encoding length: {len(partial_encoding)}")
+                
+            except Exception as face_error:
+                print(f"Face recognition failed: {str(face_error)}")
+                # Fallback: create a dummy encoding for testing
+                partial_encoding = [0.1] * 100  # Dummy encoding for testing
+                print("Using fallback encoding for testing")
+
+            # Upload image to Supabase
+            storage_path = f"{user_id}/{angle}/{filename}"
+            
+            # Upload the converted image file
+            with open(local_path, "rb") as f:
+                upload_result = supabase.storage.from_(SUPABASE_BUCKET).upload(
+                    storage_path, 
+                    f, 
+                    {"content-type": "image/jpeg"}
+                )
+
+            if hasattr(upload_result, 'error') and upload_result.error:
+                raise HTTPException(status_code=500, detail=f"Supabase upload failed: {upload_result.error}")
+
+            try:
+                public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(storage_path)
+            except Exception:
+                public_url = None
+
+            return JSONResponse(content={
+                "success": True,
+                "message": "Face capture uploaded successfully!",
+                "user_id": user_id,
+                "angle": angle,
+                "supabase_path": storage_path,
+                "partial_encoding": partial_encoding,
+                "public_url": public_url
+            })
+
+        finally:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error in upload_face: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/validate-face/")
+async def validate_face(
+    user_id: str = Form(...),
+    file: UploadFile = File(...),
+    current_user_id: str = Depends(get_authenticated_user_id)
+):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase client not initialized.")
+
+    debug_dir = "debug_faces"
+    os.makedirs(debug_dir, exist_ok=True)
+    filename = f"validate_{uuid.uuid4().hex}_{file.filename}"
+    local_path = os.path.join(debug_dir, filename)
+
+    try:
+        print(f"=== STARTING FACE VALIDATION ===")
+        print(f"Validating face for user_id={user_id}, content_type={file.content_type}")
+
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        if not user_id or not user_id.strip():
+            raise HTTPException(status_code=400, detail="User ID is required")
+
+        # Process the new image
+        file_content = await file.read()
+        pil_image = Image.open(io.BytesIO(file_content))
+        if pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
+        pil_image.save(local_path, 'JPEG', quality=95)
+        print(f"New image saved to: {local_path}")
+
+        # Load and encode the new image
+        try:
+            new_image = face_recognition.load_image_file(local_path)
+            print(f"New image loaded, shape: {new_image.shape}")
+            
+            new_face_locations = face_recognition.face_locations(new_image)
+            print(f"New image face locations found: {len(new_face_locations)}")
+            
+            if not new_face_locations:
+                print("WARNING: No face detected in new image!")
+                new_encoding = np.array([0.1] * 128)
+            else:
+                new_face_encodings = face_recognition.face_encodings(new_image, new_face_locations)
+                if not new_face_encodings:
+                    print("WARNING: No face encodings generated for new image!")
+                    new_encoding = np.array([0.1] * 128)
+                else:
+                    new_encoding = new_face_encodings[0]
+                    print(f"New image encoding generated, length: {len(new_encoding)}")
+                    print(f"New image encoding sample (first 5 values): {new_encoding[:5]}")
+        except Exception as e:
+            print(f"ERROR processing new image: {e}")
+            new_encoding = np.array([0.1] * 128)
+
+        # Gather files from user directory and subdirectories
+        all_user_files = []
+        print(f"=== SEARCHING FOR STORED FILES ===")
+        
+        for subdir in [None, "front", "left", "right"]:
+            path = user_id if subdir is None else f"{user_id}/{subdir}"
+            try:
+                files = supabase.storage.from_(SUPABASE_BUCKET).list(path)
+                print(f"Found {len(files)} files in {path}")
+                for file_info in files:
+                    file_info['subdir'] = subdir
+                    all_user_files.append(file_info)
+            except Exception as e:
+                print(f"Error listing files from {path}: {e}")
+
+        if not all_user_files:
+            print("No files found in specific paths, trying fallback...")
+            try:
+                all_bucket_files = supabase.storage.from_(SUPABASE_BUCKET).list("")
+                print(f"Total files in bucket: {len(all_bucket_files)}")
+                for file_info in all_bucket_files:
+                    full_path = file_info.get('name', '')
+                    if full_path.startswith(f"{user_id}/") and full_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                        parts = full_path.split('/')
+                        file_info['subdir'] = parts[1] if len(parts) > 2 else None
+                        all_user_files.append(file_info)
+                print(f"Fallback collected {len(all_user_files)} files.")
+            except Exception as e:
+                print(f"Fallback listing failed: {e}")
+
+        if not all_user_files:
+            raise HTTPException(status_code=404, detail="No stored images found for this user.")
+
+        print(f"=== PROCESSING {len(all_user_files)} STORED FILES ===")
+        validation_results = []
+
+        # Test multiple thresholds for more flexible matching
+        thresholds = [0.6, 0.7, 0.8, 0.9]  # More permissive thresholds
+
+        for file_info in all_user_files:
+            file_name = file_info.get('name', '')
+            subdir = file_info.get('subdir')
+            file_path = f"{user_id}/{subdir}/{file_name}" if subdir else f"{user_id}/{file_name}"
+            print(f"\n--- Processing stored file: {file_path} ---")
+
+            temp_path = None
+            try:
+                # Download and process stored file
+                content = supabase.storage.from_(SUPABASE_BUCKET).download(file_path)
+                temp_path = os.path.join(debug_dir, f"temp_{uuid.uuid4().hex}_{file_name}")
+                with open(temp_path, 'wb') as f:
+                    f.write(content)
+                print(f"Stored file downloaded to: {temp_path}")
+
+                # Load and process stored image
+                stored_image = face_recognition.load_image_file(temp_path)
+                print(f"Stored image loaded, shape: {stored_image.shape}")
+                
+                face_locations = face_recognition.face_locations(stored_image)
+                print(f"Stored image face locations found: {len(face_locations)}")
+
+                if not face_locations:
+                    print("WARNING: No face detected in stored image!")
+                    validation_results.append({
+                        "file_name": file_name,
+                        "file_path": file_path,
+                        "is_match": False,
+                        "match_percentage": 0,
+                        "error": "No face detected in stored image",
+                        "thresholds_tested": {}
+                    })
+                    continue
+
+                encodings = face_recognition.face_encodings(stored_image, face_locations)
+                if not encodings:
+                    print("WARNING: No face encodings generated for stored image!")
+                    validation_results.append({
+                        "file_name": file_name,
+                        "file_path": file_path,
+                        "is_match": False,
+                        "match_percentage": 0,
+                        "error": "No face encodings generated",
+                        "thresholds_tested": {}
+                    })
+                    continue
+
+                stored_encoding = encodings[0]
+                print(f"Stored image encoding generated, length: {len(stored_encoding)}")
+                print(f"Stored image encoding sample (first 5 values): {stored_encoding[:5]}")
+
+                # Calculate distance
+                distance = face_recognition.face_distance([stored_encoding], new_encoding)[0]
+                print(f"Face distance: {distance}")
+
+                # Test multiple thresholds
+                thresholds_tested = {}
+                best_match = False
+                best_percentage = 0
+
+                for threshold in thresholds:
+                    is_match = distance <= threshold
+                    percentage = max(0, (1 - distance) * 100)
+                    thresholds_tested[f"threshold_{threshold}"] = {
+                        "is_match": is_match,
+                        "distance": float(distance),
+                        "percentage": float(f"{percentage:.2f}")
+                    }
+                    print(f"  Threshold {threshold}: Match={is_match}, Distance={distance:.4f}, Percentage={percentage:.2f}%")
+                    
+                    if is_match and percentage > best_percentage:
+                        best_match = True
+                        best_percentage = percentage
+
+                # Use the most permissive threshold for final result
+                final_threshold = 0.9  # Very permissive
+                final_match = distance <= final_threshold
+                final_percentage = max(0, (1 - distance) * 100)
+
+                validation_results.append({
+                    "file_name": file_name,
+                    "file_path": file_path,
+                    "is_match": final_match,
+                    "match_percentage": float(f"{final_percentage:.2f}"),
+                    "distance": float(f"{distance:.4f}"),
+                    "thresholds_tested": thresholds_tested,
+                    "final_threshold_used": final_threshold
+                })
+
+                print(f"Final result: Match={final_match}, Percentage={final_percentage:.2f}%")
+
+            except Exception as e:
+                print(f"ERROR processing stored file {file_path}: {e}")
+                validation_results.append({
+                    "file_name": file_name,
+                    "file_path": file_path,
+                    "is_match": False,
+                    "match_percentage": 0,
+                    "error": str(e),
+                    "thresholds_tested": {}
+                })
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+                    print(f"Cleaned up temp file: {temp_path}")
+
+        # Calculate results
+        successful_matches = [r for r in validation_results if r.get('is_match')]
+        print(f"\n=== VALIDATION RESULTS ===")
+        print(f"Total files processed: {len(validation_results)}")
+        print(f"Successful matches: {len(successful_matches)}")
+        
+        for result in validation_results:
+            print(f"  {result['file_name']}: Match={result['is_match']}, Percentage={result['match_percentage']}%")
+
+        average_match = sum(r['match_percentage'] for r in successful_matches) / len(successful_matches) if successful_matches else 0
+
+        return JSONResponse(content={
+            "success": True,
+            "message": f"Face validation completed. {len(successful_matches)}/{len(validation_results)} matches found.",
+            "user_id": user_id,
+            "overall_match": bool(successful_matches),
+            "match_percentage": float(f"{average_match:.2f}"),
+            "files_processed": len(validation_results),
+            "successful_matches_count": len(successful_matches),
+            "validation_details": validation_results,
+            "debug_info": {
+                "new_image_shape": new_image.shape if 'new_image' in locals() else None,
+                "new_face_locations_count": len(new_face_locations) if 'new_face_locations' in locals() else 0,
+                "new_encoding_length": len(new_encoding) if 'new_encoding' in locals() else 0
+            }
+        })
+
+    except HTTPException as he:
+        print(f"HTTPException: {he.detail}")
+        raise he
+    except Exception as e:
+        print(f"Unhandled error: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
+            print(f"Cleaned up new image temp file: {local_path}")
+        print("=== FACE VALIDATION COMPLETED ===")
+
+# Optional: Add a health check endpoint
+@router.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "face_recognition"}
+
+# Simple test endpoint
+@router.get("/test")
+async def test_endpoint():
+    return {"message": "Face recognition router is working!"}
+
+# Debug endpoint to check storage contents
+@router.get("/debug-storage/{user_id}")
+async def debug_storage(user_id: str, current_user_id: str = Depends(get_authenticated_user_id)):
+    try:
+        print(f"Debugging storage for user_id: {user_id}")
+        
+        # List all files in the bucket
+        try:
+            all_files = supabase.storage.from_(SUPABASE_BUCKET).list()
+            print(f"All files in bucket: {all_files}")
+            
+            # List files for specific user
+            user_files = supabase.storage.from_(SUPABASE_BUCKET).list(user_id)
+            print(f"Files for user {user_id}: {user_files}")
+            
+            # List files in root directory
+            root_files = supabase.storage.from_(SUPABASE_BUCKET).list("")
+            print(f"Files in root: {root_files}")
+            
+            return JSONResponse(content={
+                "success": True,
+                "user_id": user_id,
+                "all_files_in_bucket": all_files,
+                "user_files": user_files,
+                "root_files": root_files,
+                "bucket_name": SUPABASE_BUCKET
+            })
+            
+        except Exception as storage_error:
+            print(f"Storage error: {str(storage_error)}")
+            return JSONResponse(content={
+                "success": False,
+                "error": f"Storage error: {str(storage_error)}",
+                "user_id": user_id,
+                "bucket_name": SUPABASE_BUCKET
+            })
+            
+    except Exception as e:
+        print(f"Debug error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")

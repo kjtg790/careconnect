@@ -1,6 +1,6 @@
 # routers/profiles.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 from typing import Optional
@@ -9,12 +9,13 @@ from uuid import UUID
 import asyncpg
 import os
 from auth.auth_utils import get_authenticated_user_id
-
+import requests
 router = APIRouter()
 security = HTTPBearer()
 
 DATABASE_URL = os.getenv("SUPABASE_DB")
-
+SUPABASE_URL = os.getenv("SUPABASE_DB_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Pydantic Models
 class ProfileCreateUpdate(BaseModel):
@@ -83,32 +84,22 @@ async def create_or_update_profile(
         await conn.close()
 
 
-# Get Profile
-@router.get("/api/profile", response_model=ProfileOut, tags=["Profiles"])
-async def get_profile(user_id: str = Depends(get_authenticated_user_id)):
-    conn = await get_connection()
-    try:
-        row = await conn.fetchrow(
-            """
-            SELECT id, updated_at, first_name, last_name, avatar_url, phone_number, address
-            FROM public.profiles
-            WHERE id = $1
-            """,
-            user_id
-        )
+# ====== Query Profile ======
 
-        if not row:
-            raise HTTPException(status_code=404, detail="Profile not found")
+@router.get("/profiles/query", tags=["Profiles"])
+def get_profile(
+    profile_user_id: Optional[str] = Query(default=None),
+    user_id: str = Depends(get_authenticated_user_id)
+):
+    target_id = profile_user_id or user_id
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{target_id}"
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"
+    }
 
-        return {
-            "id": str(row["id"]),
-            "updated_at": row["updated_at"],
-            "first_name": row["first_name"],
-            "last_name": row["last_name"],
-            "avatar_url": row["avatar_url"],
-            "phone_number": row["phone_number"],
-            "address": row["address"],
-        }
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
 
-    finally:
-        await conn.close()
+    return response.json()

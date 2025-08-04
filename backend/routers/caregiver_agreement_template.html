@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Care Agreement</title>
+    <style>
+        body {
+            font-family: "DejaVu Sans", sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        h1 {
+            text-align: center;
+            text-decoration: underline;
+        }
+        h2 {
+            margin-top: 20px;
+            font-size: 16px;
+            text-decoration: underline;
+        }
+        p {
+            text-align: justify;
+        }
+        ul {
+            margin-left: 20px;
+        }
+        .section {
+            margin-top: 20px;
+        }
+        .signature-block {
+            margin-top: 40px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Caregiver Agreement</h1>
+
+    <p>This Agreement is made and entered into on {{ agreement_date }} by and between:</p>
+
+    <p><strong>Care Seeker:</strong> {{ care_seeker_name }}, residing at {{ care_seeker_address }}, hereinafter referred to as the "Care Seeker",</p>
+
+    <p><strong>AND</strong></p>
+
+    <p><strong>Caregiver:</strong> {{ caregiver_name }}, residing at {{ caregiver_address }}, hereinafter referred to as the "Caregiver".</p>
+
+    <p>Collectively referred to as the "Parties".</p>
+
+    <div class="section">
+        <h2>1. Purpose</h2>
+        <p>The Care Seeker desires to avail the personal home care services of the Caregiver, and the Caregiver agrees to provide such services under the terms set forth in this Agreement.</p>
+    </div>
+
+    <div class="section">
+        <h2>2. Service Period</h2>
+        <p>Start Date: {{ service_start_date }}<br>
+        End Date: {{ service_end_date }}</p>
+    </div>
+
+    <div class="section">
+        <h2>3. Working Hours</h2>
+        <p>Hours per day: {{ hours_per_day }}<br>
+        Days per week: {{ days_per_week }}<br>
+        Weekly off: {{ weekly_off }}</p>
+    </div>
+
+    <div class="section">
+        <h2>4. Service Location</h2>
+        <p>The services will be rendered at the Care Seeker's residence: {{ care_seeker_address }}</p>
+    </div>
+
+    <div class="section">
+        <h2>5. Responsibilities of the Caregiver</h2>
+        <p>The Caregiver shall:</p>
+        <ul>
+            <li>Perform the duties as described: {{ caregiver_duties }}</li>
+            <li>Maintain confidentiality of all personal and medical information</li>
+            <li>Adhere to hygienic and respectful conduct</li>
+            <li>Provide timely assistance for daily activities of the care recipient</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>6. Responsibilities of the Care Seeker</h2>
+        <p>The Care Seeker shall:</p>
+        <ul>
+            <li>Provide a safe and respectful environment</li>
+            <li>Offer necessary supplies: {{ care_seeker_supplies }}</li>
+            <li>Ensure timely payment as agreed</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>7. Compensation</h2>
+        <p>The Care Seeker agrees to pay the Caregiver:<br>
+        Monthly Charge: ₹{{ monthly_charge }}<br>
+        Payment Due Date: {{ payment_due_date }}<br>
+        Payment Mode: {{ payment_mode }}</p>
+    </div>
+
+    <div class="section">
+        <h2>8. Mutual Conduct</h2>
+        <p>Both parties agree to maintain respectful, professional, and non-abusive communication. Any form of harassment or misconduct shall lead to immediate termination of this Agreement.</p>
+    </div>
+
+    <div class="section">
+        <h2>9. Termination Clause</h2>
+        <p>Either party may terminate this agreement with a written notice of {{ termination_notice_days }} days. All pending dues shall be cleared before the termination date.</p>
+    </div>
+
+    <div class="section">
+        <h2>10. Governing Law</h2>
+        <p>This Agreement shall be governed and construed in accordance with the laws of India, specifically the Indian Contract Act, 1872.</p>
+    </div>
+
+    <div class="signature-block">
+        <p>Signed on this day: {{ agreement_date }}</p>
+        <br>
+        <p>Care Seeker: ___________________________<br>Name: {{ care_seeker_name }}</p>
+        <br>
+        <p>Caregiver: ___________________________<br>Name: {{ caregiver_name }}</p>
+    </div>
+
+</body>
+</html>

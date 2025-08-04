@@ -1,6 +1,6 @@
 # backend/routers/care_applications.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, List
@@ -86,10 +86,33 @@ def update_care_application(
 
     return {"message": "Care application updated", "data": response.json()}
 
-# Query all applications by logged-in caregiver
+@router.get("/care_applications/by_request", tags=["Care Applications"], response_model=List[CareApplication])
+def query_care_applications_by_request(
+    care_request_id: str = Query(..., description="ID of the care request"),
+    user_id: str = Depends(get_authenticated_user_id)
+):
+    url = f"{SUPABASE_URL}/rest/v1/care_applications?care_request_id=eq.{care_request_id}&select=*"
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"
+    }
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    return response.json()
+
 @router.get("/care_applications/query", tags=["Care Applications"], response_model=List[CareApplication])
-def query_care_applications(user_id: str = Depends(get_authenticated_user_id)):
-    url = f"{SUPABASE_URL}/rest/v1/care_applications?caregiver_user_id=eq.{user_id}&select=*"
+def query_care_applications_by_caregiver(
+    caregiver_user_id: Optional[str] = Query(None, description="Logged-in caregiver user ID"),
+    user_id: str = Depends(get_authenticated_user_id)
+):
+    # Use the provided caregiver_user_id only if passed, otherwise default to the logged-in user
+    caregiver_id = caregiver_user_id or user_id
+
+    url = f"{SUPABASE_URL}/rest/v1/care_applications?caregiver_user_id=eq.{caregiver_id}&select=*"
     headers = {
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"

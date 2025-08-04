@@ -21,19 +21,19 @@ class BackgroundDocumentInsert(BaseModel):
     document_type: str
     file_name: str
     storage_path: str
-
+    status: Optional[str] = None
 class BackgroundDocumentUpdate(BaseModel):
     document_type: Optional[str] = None
     file_name: Optional[str] = None
     storage_path: Optional[str] = None
-
+    status: Optional[str] = None
 class BackgroundDocumentResponse(BaseModel):
     id: str
     user_id: str
     document_type: str
     file_name: str
     storage_path: str
-
+    status: Optional[str] = None
 # ======= Insert =======
 
 @router.post("/background-check-documents/insert", tags=["Background Check Documents"])

@@ -27,6 +27,24 @@ from routers import rule_query
 from routers import simple_rule_engine
 from routers import user_roles_util
 from routers import file_storage
+import uvicorn
+from routers import sessiongoogle
+from routers import background_verification_process
+from routers import count_care_applications_by_status
+from routers.enums import router as enums_router
+from routers import agreementgeneration
+from routers import agreements
+from fastapi.staticfiles import StaticFiles
+from routers import face_capture
+from fastapi.staticfiles import StaticFiles
+from routers import face_capture
+from fastapi.responses import HTMLResponse
+from routers.face_recognition import router as face_recognition_router
+from routers.digital_signatures import router as digital_signatures_router
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
 app = FastAPI(
     title="CareConnect Backend",
     description="APIs for Caregiver platform",
@@ -45,21 +63,26 @@ app.add_middleware(
 
 # Optional: print to verify
 print("SUPABASE_DB_URL =", settings.SUPABASE_DB_URL)
-
+app.include_router(agreementgeneration.router, prefix="/api/agreementsgeneration", tags=["Agreements"])
+app.include_router(agreements.router, prefix="/api/agreements", tags=["Agreements"])
 app.include_router(session_routes.router, prefix="/api/session",tags=["session"])
 app.include_router(session_routes.router,prefix="/api/session",tags=["session"])
-
+app.include_router(sessiongoogle.router, tags=["Auth"])
 app.include_router(
     agencies.router,
     prefix="/api",
     tags=["Agencies"]
 )
+app.include_router(enums_router, prefix="/api/v1/enums", tags=["ENUM Types"])
 app.include_router(
     background_check_documents.router,
     prefix="/api",
     tags=["Background Check Documents"]
 )
 
+app.include_router(background_verification_process.router,
+    prefix="/api",
+    tags=["background_verification_process"])
 app.include_router(caregiver_profiles.router)
 # Registering the care_requests router with a custom prefix and tag
 app.include_router(
@@ -68,6 +91,11 @@ app.include_router(
     tags=["Care Requests"]
 )
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.include_router(digital_signatures_router, prefix="/api")
+app.include_router(face_capture.router)
+#app.include_router(face_recognition.router, prefix="/face", tags=["Face Recognition"])
+app.include_router(face_recognition_router)
 # Add other routers similarly
 # app.include_router(caregiver_profiles.router, prefix="/api/caregivers", tags=["Caregiver Profiles"])
 # app.include_router(care_requests.router, prefix="/api/care_requests", tags=["Care Requests"])
@@ -77,7 +105,9 @@ app.include_router(
     prefix="/api",
     tags=["Care Applications"]
 )
-
+app.include_router(count_care_applications_by_status.care_app_status_router,
+    prefix="/api",
+    tags=["Care Applications"])
 app.include_router(
     care_services.router,
     prefix="/api",
@@ -164,6 +194,9 @@ app.include_router(
     tags=["User Roles"]
 )
 app.include_router(user_roles_util.router, tags=["User Roles Utility"])
-@app.get("/")
-def read_root():
-    return {"message": "CareConnect API is up and running!"}
+
+# Serve the camera-based HTML at "/"
+@app.get("/", response_class=HTMLResponse)
+def serve_face_capture_ui():
+    with open("static/capture.html", "r") as f:
+        return f.read()

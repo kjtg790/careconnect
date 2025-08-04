@@ -91,17 +91,32 @@ def insert_interview_request(
 
 @router.get("/query")
 def get_interview_requests(
-    user_id: str = Depends(get_authenticated_user_id),
-    status_filter: Optional[str] = Query(None)
+    user_id: Optional[str] = Query(None, description="User ID for auth context"),
+    requester_id: Optional[str] = Query(None, description="Filter by requester_id"),
+    caregiver_user_id: Optional[str] = Query(None, description="Filter by caregiver_user_id"),
+    status_filter: Optional[str] = Query(None, description="Optional status filter")
 ):
-    # Compose filter for requester OR caregiver
-    base_filter = f"or=(requester_id.eq.{user_id},caregiver_user_id.eq.{user_id})"
+    filters = []
 
-    # Append optional status filter
+    # Use fallback user_id to build base OR filter
+    if user_id:
+        filters.append(f"or=(requester_id.eq.{user_id},caregiver_user_id.eq.{user_id})")
+
+    # Specific requester_id
+    if requester_id:
+        filters.append(f"requester_id=eq.{requester_id}")
+
+    # Specific caregiver_user_id
+    if caregiver_user_id:
+        filters.append(f"caregiver_user_id=eq.{caregiver_user_id}")
+
+    # Status
     if status_filter:
-        base_filter += f"&status=eq.{status_filter}"
+        filters.append(f"status=eq.{status_filter}")
 
-    url = f"{SUPABASE_URL}/rest/v1/interview_requests?{base_filter}&order=created_at.desc"
+    filter_query = "&".join(filters)
+
+    url = f"{SUPABASE_URL}/rest/v1/interview_requests?{filter_query}&order=created_at.desc"
     headers = {
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"

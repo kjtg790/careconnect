@@ -1,18 +1,24 @@
 # routers/health_profiles.py
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, conlist
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import date
 from uuid import UUID
 import os
 import jwt
 import asyncpg
+from dotenv import load_dotenv
 from auth.auth_utils import get_authenticated_user_id
+
+# Load environment variables from .env file
+load_dotenv()
+
 router = APIRouter()
 security = HTTPBearer()
 JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+
 
 class HealthProfileBase(BaseModel):
     date_of_birth: Optional[date]
@@ -43,9 +49,11 @@ class HealthProfileCreate(HealthProfileBase):
 class HealthProfileUpdate(HealthProfileBase):
     pass
 
-
 async def get_connection():
-    return await asyncpg.connect(os.getenv("DATABASE_URL"))
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL not set in environment")
+    return await asyncpg.connect(db_url)
 
 @router.post("/insert", tags=["Health Profiles"])
 async def insert_health_profile(profile: HealthProfileCreate, user_id: UUID = Depends(get_authenticated_user_id)):

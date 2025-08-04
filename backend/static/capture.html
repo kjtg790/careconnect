@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Multi-Angle Face Capture</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      padding: 20px; 
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    video { 
+      border: 2px solid #007bff; 
+      border-radius: 5px;
+      background: #000;
+    }
+    button { 
+      margin: 10px 5px; 
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    select, input { 
+      margin: 10px 0; 
+      padding: 8px;
+      width: 200px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    #status {
+      margin-top: 20px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    #capturesList {
+      margin-top: 10px;
+    }
+    #capturesList li {
+      padding: 5px;
+      margin: 5px 0;
+      background: #e7f3ff;
+      border-radius: 3px;
+    }
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+    }
+    .success {
+      color: #155724;
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Multi-Angle Face Capture</h2>
+    
+    <video id="video" width="400" height="300" autoplay playsinline></video><br>
+    
+    <input type="text" id="user_id" placeholder="Enter User ID" required><br>
+    
+    <select id="angle">
+      <option value="front">Front</option>
+      <option value="left">Left</option>
+      <option value="right">Right</option>
+      <option value="up">Up</option>
+      <option value="down">Down</option>
+    </select><br>
+    
+    <button onclick="capture()" id="captureBtn">Capture This Angle</button>
+    <button onclick="submitAll()" id="submitBtn">Submit All Captures</button>
+    <button onclick="clearCaptures()" id="clearBtn">Clear All</button>
+    
+    <div id="status"></div>
+    <ul id="capturesList"></ul>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const capturedImages = [];
+    let stream = null;
+
+    // Access the camera with better error handling
+    async function initCamera() {
+      try {
+        const constraints = {
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: 'user'
+          }
+        };
+        
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        
+        // Wait for video to be ready
+        await new Promise((resolve) => {
+          video.onloadedmetadata = resolve;
+        });
+        
+        updateStatus("Camera initialized successfully", "success");
+        
+      } catch (err) {
+        console.error("Camera error:", err);
+        updateStatus(`Camera error: ${err.message}`, "error");
+      }
+    }
+
+    // Initialize camera on page load
+    initCamera();
+
+    function updateStatus(message, type = "info") {
+      const statusDiv = document.getElementById('status');
+      statusDiv.textContent = message;
+      statusDiv.className = type;
+      console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+
+    // Capture a single frame from the video
+    function capture() {
+      if (!video.videoWidth || !video.videoHeight) {
+        updateStatus("Video not ready. Please wait for camera to initialize.", "error");
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw video frame to canvas
+      ctx.drawImage(video, 0, 0);
+      
+      const angle = document.getElementById('angle').value;
+      
+      // Convert to blob with higher quality
+      canvas.toBlob(blob => {
+        if (!blob) {
+          updateStatus("Failed to capture image blob", "error");
+          return;
+        }
+        
+        // Check blob size
+        if (blob.size === 0) {
+          updateStatus("Captured image is empty", "error");
+          return;
+        }
+        
+        console.log(`Captured ${angle} angle - Size: ${blob.size} bytes`);
+        
+        capturedImages.push({ 
+          angle, 
+          blob,
+          timestamp: new Date().toISOString()
+        });
+        
+        const list = document.getElementById('capturesList');
+        const item = document.createElement('li');
+        item.textContent = `Captured angle: ${angle} (${(blob.size / 1024).toFixed(1)} KB)`;
+        list.appendChild(item);
+        
+        updateStatus(`Captured ${angle} angle successfully. Total: ${capturedImages.length} images`, "success");
+        
+      }, 'image/jpeg', 0.8); // Higher quality JPEG
+    }
+
+    // Clear all captures
+    function clearCaptures() {
+      capturedImages.length = 0;
+      document.getElementById('capturesList').innerHTML = '';
+      updateStatus("All captures cleared", "info");
+    }
+
+    // Submit all captured images to the backend
+    async function submitAll() {
+      const userId = document.getElementById('user_id').value.trim();
+      
+      if (!userId) {
+        updateStatus("User ID is required.", "error");
+        return;
+      }
+      
+      if (capturedImages.length === 0) {
+        updateStatus("No images to upload.", "error");
+        return;
+      }
+
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Uploading...';
+      
+      try {
+        const formData = new FormData();
+        formData.append("user_id", userId);
+        
+        capturedImages.forEach((entry, index) => {
+          const filename = `${entry.angle}_${Date.now()}_${index}.jpg`;
+          formData.append("files", entry.blob, filename);
+          console.log(`Added file: ${filename}, size: ${entry.blob.size}`);
+        });
+        
+        updateStatus(`Uploading ${capturedImages.length} images...`, "info");
+        
+
+
+const response = await fetch("http://localhost:8000/api/save-face-encodings", {
+  method: "POST",
+  body: formData
+});
+
+const resultText = await response.text(); // read only once
+
+let data;
+try {
+  data = JSON.parse(resultText);
+} catch (e) {
+  data = { detail: resultText }; // fallback if not JSON
+}
+
+if (!response.ok) {
+  console.error("Upload failed:", data);
+  updateStatus(`Upload failed: ${JSON.stringify(data, null, 2)}`, "error");
+  return;
+}
+
+updateStatus(JSON.stringify(data, null, 2), "success");
+clearCaptures();
+        
+      } catch (err) {
+        console.error("Upload error:", err);
+        updateStatus(`Upload failed: ${err.message}`, "error");
+        
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit All Captures';
+      }
+    }
+
+    // Clean up camera stream when page unloads
+    window.addEventListener('beforeunload', () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    });
+  </script>
+</body>
+</html>

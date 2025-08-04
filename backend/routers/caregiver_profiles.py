@@ -1,6 +1,6 @@
 # backend/routers/caregiver_profiles.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -78,14 +78,21 @@ def update_caregiver_profile(
 
 # ---- GET Current User's Profile ----
 @router.get("/query")
-def get_my_caregiver_profile(user_id: str = Depends(get_authenticated_user_id)):
-    url = f"{settings.SUPABASE_DB_URL}/rest/v1/caregiver_profiles?user_id=eq.{user_id}"
+def get_my_caregiver_profile(
+    caregiver_user_id: str = Query(default=None),
+    user_id: str = Depends(get_authenticated_user_id)
+):
+    # Use caregiver_user_id if provided; otherwise, fallback to the authenticated user
+    target_user_id = caregiver_user_id or user_id
+
+    url = f"{settings.SUPABASE_DB_URL}/rest/v1/caregiver_profiles?user_id=eq.{target_user_id}"
     headers = {
         "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"
     }
 
     response = requests.get(url, headers=headers)
+
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
